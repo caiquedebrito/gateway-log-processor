@@ -10,13 +10,13 @@ use Illuminate\Queue\SerializesModels;
 
 class FakeQueuedJob implements ShouldQueue
 {
-  use Dispatchable;
-  use InteractsWithQueue;
-  use Queueable;
-  use SerializesModels;
+    use Dispatchable;
+    use InteractsWithQueue;
+    use Queueable;
+    use SerializesModels;
 
-  public function handle(): void
-  {
-    // Job fake usado apenas para testar dispatch em fila.
-  }
+    public function handle(): void
+    {
+        // Job fake usado apenas para testar dispatch em fila.
+    }
 }

@@ -9,23 +9,23 @@ use Tests\TestCase;
 
 class QueueConfigurationTest extends TestCase
 {
-  use RefreshDatabase;
+    use RefreshDatabase;
 
-  public function test_job_can_be_dispatched_to_logs_queue(): void
-  {
-    Queue::fake();
+    public function test_job_can_be_dispatched_to_logs_queue(): void
+    {
+        Queue::fake();
 
-    FakeQueuedJob::dispatch()->onQueue('logs');
+        FakeQueuedJob::dispatch()->onQueue('logs');
 
-    Queue::assertPushedOn('logs', FakeQueuedJob::class);
-  }
+        Queue::assertPushedOn('logs', FakeQueuedJob::class);
+    }
 
-  public function test_job_can_be_dispatched_to_reports_queue(): void
-  {
-    Queue::fake();
+    public function test_job_can_be_dispatched_to_reports_queue(): void
+    {
+        Queue::fake();
 
-    FakeQueuedJob::dispatch()->onQueue('reports');
+        FakeQueuedJob::dispatch()->onQueue('reports');
 
-    Queue::assertPushedOn('reports', FakeQueuedJob::class);
-  }
+        Queue::assertPushedOn('reports', FakeQueuedJob::class);
+    }
 }
