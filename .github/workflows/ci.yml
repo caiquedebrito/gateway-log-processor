@@ -66,8 +66,8 @@ jobs:
       - name: Run migrations
         run: php artisan migrate --force
 
-      - name: Run tests
-        run: php artisan test
+      - name: Run PHPUnit with diagnostics
+        run: ./vendor/bin/phpunit --display-warnings --display-deprecations --display-notices --display-errors
 
       - name: Run Pint
         run: ./vendor/bin/pint --test
