@@ -59,6 +59,14 @@ final class ExportGatewayLogReportServiceTest extends TestCase
         $this->assertNotNull($export->started_at);
         $this->assertNotNull($export->finished_at);
         $this->assertFileExists($export->output_path);
+
+        $rows = $this->readCsv($export->output_path);
+
+        $this->assertSame([
+            ['consumer_id', 'total'],
+            ['consumer-a', '2'],
+            ['consumer-b', '1'],
+        ], $rows);
     }
 
     private function createImport(): LogImport
@@ -149,6 +157,21 @@ final class ExportGatewayLogReportServiceTest extends TestCase
         return new ExportGatewayLogReportService(
             factory: new GatewayLogReportFactory,
             writer: new CsvReportWriter,
+        );
+    }
+
+    /**
+     * @return list<list<string|null>>
+     */
+    private function readCsv(string $path): array
+    {
+        $lines = file($path, FILE_IGNORE_NEW_LINES);
+
+        $this->assertIsArray($lines);
+
+        return array_map(
+            static fn (string $line): array => str_getcsv($line),
+            $lines,
         );
     }
 }
