@@ -95,6 +95,70 @@ final class ExportGatewayLogReportServiceTest extends TestCase
         ], $rows);
     }
 
+    public function test_it_generates_average_latency_by_service_csv_report(): void
+    {
+        $import = $this->createImport();
+
+        $this->createGatewayLog(
+            import: $import,
+            consumerId: 'consumer-a',
+            serviceName: 'catalog-service',
+            latencyRequest: 100,
+            latencyProxy: 60,
+            latencyGateway: 10,
+        );
+
+        $this->createGatewayLog(
+            import: $import,
+            consumerId: 'consumer-b',
+            serviceName: 'catalog-service',
+            latencyRequest: 200,
+            latencyProxy: 80,
+            latencyGateway: 20,
+        );
+
+        $this->createGatewayLog(
+            import: $import,
+            consumerId: 'consumer-c',
+            serviceName: 'billing-service',
+            latencyRequest: 300,
+            latencyProxy: 200,
+            latencyGateway: 30,
+        );
+
+        $export = $this->makeService()->export(
+            type: ReportType::AverageLatencyByService,
+            outputDirectory: $this->temporaryDirectory,
+        );
+
+        $this->assertSame(ReportType::AverageLatencyByService, $export->type);
+        $this->assertSame(ReportExportStatus::Finished, $export->status);
+        $this->assertFileExists($export->output_path);
+
+        $rows = $this->readCsv($export->output_path);
+
+        $this->assertSame([
+            [
+                'service_name',
+                'avg_latency_request',
+                'avg_latency_proxy',
+                'avg_latency_gateway',
+            ],
+            [
+                'billing-service',
+                '300.00',
+                '200.00',
+                '30.00',
+            ],
+            [
+                'catalog-service',
+                '150.00',
+                '70.00',
+                '15.00',
+            ],
+        ], $rows);
+    }
+
     private function createImport(): LogImport
     {
         return LogImport::query()->create([
