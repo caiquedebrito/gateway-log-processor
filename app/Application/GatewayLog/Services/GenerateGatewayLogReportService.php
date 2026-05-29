@@ -22,6 +22,8 @@ final readonly class GenerateGatewayLogReportService
         ReportExport $export,
         ?string $outputDirectory = null,
     ): ReportExport {
+        $export->refresh();
+
         $this->ensureReportCanBeGenerated($export);
 
         $export->refresh();
