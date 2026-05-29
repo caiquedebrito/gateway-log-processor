@@ -14,12 +14,15 @@ final readonly class QueueGatewayLogReportExportService
         private CreateGatewayLogReportExportService $createReportExportService,
     ) {}
 
-    public function queue(ReportType $type): ReportExport
-    {
+    public function queue(
+        ReportType $type,
+        ?string $outputDirectory = null,
+    ): ReportExport {
         $export = $this->createReportExportService->create($type);
 
         ExportGatewayLogReportJob::dispatch(
-            reportExportId: (int) $export->id,
+            (int) $export->id,
+            $outputDirectory,
         );
 
         return $export->refresh();

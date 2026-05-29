@@ -42,6 +42,32 @@ final class QueueGatewayLogReportExportServiceTest extends TestCase
             ExportGatewayLogReportJob::class,
             function (ExportGatewayLogReportJob $job) use ($export): bool {
                 return $job->reportExportId === $export->id
+                    && $job->outputDirectory === null
+                    && $job->queue === 'reports';
+            }
+        );
+    }
+
+    public function test_it_dispatches_job_with_custom_output_directory(): void
+    {
+        Bus::fake();
+
+        $service = new QueueGatewayLogReportExportService(
+            createReportExportService: new CreateGatewayLogReportExportService,
+        );
+
+        $outputDirectory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'gateway-report-output';
+
+        $export = $service->queue(
+            type: ReportType::RequestsByService,
+            outputDirectory: $outputDirectory,
+        );
+
+        Bus::assertDispatched(
+            ExportGatewayLogReportJob::class,
+            function (ExportGatewayLogReportJob $job) use ($export, $outputDirectory): bool {
+                return $job->reportExportId === $export->id
+                    && $job->outputDirectory === $outputDirectory
                     && $job->queue === 'reports';
             }
         );

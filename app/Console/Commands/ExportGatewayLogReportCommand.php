@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Application\GatewayLog\Services\ExportGatewayLogReportService;
+use App\Application\GatewayLog\Services\QueueGatewayLogReportExportService;
 use App\Domain\GatewayLog\Enums\ReportType;
 use Illuminate\Console\Command;
-use Throwable;
 
 final class ExportGatewayLogReportCommand extends Command
 {
@@ -15,9 +14,9 @@ final class ExportGatewayLogReportCommand extends Command
         {type : Report type: requests_by_consumer, requests_by_service, average_latency_by_service}
         {--output= : Directory where the generated CSV file will be stored}';
 
-    protected $description = 'Generate API Gateway log reports in CSV format.';
+    protected $description = 'Queue API Gateway log report generation in CSV format.';
 
-    public function handle(ExportGatewayLogReportService $service): int
+    public function handle(QueueGatewayLogReportExportService $service): int
     {
         $type = ReportType::tryFrom((string) $this->argument('type'));
 
@@ -36,26 +35,24 @@ final class ExportGatewayLogReportCommand extends Command
         $outputDirectory = $this->resolveOutputDirectory(
             $this->option('output') !== null
                 ? (string) $this->option('output')
-                : null
+                : null,
         );
 
-        try {
-            $export = $service->export(
-                type: $type,
-                outputDirectory: $outputDirectory,
-            );
+        $export = $service->queue(
+            type: $type,
+            outputDirectory: $outputDirectory,
+        );
 
-            $this->info("Gateway log report [{$export->id}] generated successfully.");
-            $this->line("Type: {$export->type->value}");
-            $this->line("Output: {$export->output_path}");
+        $this->info("Gateway log report [{$export->id}] queued successfully.");
+        $this->line("Type: {$export->type->value}");
+        $this->line("Status: {$export->status->value}");
+        $this->line('Queue: reports');
 
-            return self::SUCCESS;
-        } catch (Throwable $exception) {
-            $this->error('Could not generate gateway log report.');
-            $this->line($exception->getMessage());
-
-            return self::FAILURE;
+        if ($outputDirectory !== null) {
+            $this->line("Output directory: {$outputDirectory}");
         }
+
+        return self::SUCCESS;
     }
 
     private function resolveOutputDirectory(?string $outputDirectory): ?string
