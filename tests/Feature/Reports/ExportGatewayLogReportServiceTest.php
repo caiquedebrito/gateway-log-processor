@@ -12,8 +12,10 @@ use App\Domain\GatewayLog\Enums\ReportExportStatus;
 use App\Domain\GatewayLog\Enums\ReportType;
 use App\Models\ApiGatewayLog;
 use App\Models\LogImport;
+use App\Models\ReportExport;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use RuntimeException;
 use Tests\TestCase;
 
 final class ExportGatewayLogReportServiceTest extends TestCase
@@ -157,6 +159,37 @@ final class ExportGatewayLogReportServiceTest extends TestCase
                 '15.00',
             ],
         ], $rows);
+    }
+
+    public function test_it_marks_report_export_as_failed_when_csv_cannot_be_written(): void
+    {
+        $invalidOutputDirectory = $this->temporaryDirectory
+            .DIRECTORY_SEPARATOR
+            .'not-a-directory';
+
+        file_put_contents($invalidOutputDirectory, 'content');
+
+        try {
+            $this->makeService()->export(
+                type: ReportType::RequestsByConsumer,
+                outputDirectory: $invalidOutputDirectory,
+            );
+
+            $this->fail('Expected exception was not thrown.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('exists and is not a directory', $exception->getMessage());
+        }
+
+        $this->assertSame(1, ReportExport::query()->count());
+
+        $export = ReportExport::query()->firstOrFail();
+
+        $this->assertSame(ReportType::RequestsByConsumer, $export->type);
+        $this->assertSame(ReportExportStatus::Failed, $export->status);
+        $this->assertNotNull($export->started_at);
+        $this->assertNotNull($export->failed_at);
+        $this->assertNull($export->finished_at);
+        $this->assertStringContainsString('exists and is not a directory', $export->error_message);
     }
 
     private function createImport(): LogImport
