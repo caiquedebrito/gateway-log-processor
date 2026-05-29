@@ -6,6 +6,7 @@ namespace App\Application\GatewayLog\Reports;
 
 use App\Application\GatewayLog\Reports\Contracts\GatewayLogReportGenerator;
 use App\Application\GatewayLog\Reports\Generators\RequestsByConsumerReportGenerator;
+use App\Application\GatewayLog\Reports\Generators\RequestsByServiceReportGenerator;
 use App\Domain\GatewayLog\Enums\ReportType;
 
 final class GatewayLogReportFactory
@@ -14,6 +15,7 @@ final class GatewayLogReportFactory
     {
         return match ($type) {
             ReportType::RequestsByConsumer => new RequestsByConsumerReportGenerator,
+            ReportType::RequestsByService => new RequestsByServiceReportGenerator,
         };
     }
 }

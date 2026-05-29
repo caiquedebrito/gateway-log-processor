@@ -69,6 +69,32 @@ final class ExportGatewayLogReportServiceTest extends TestCase
         ], $rows);
     }
 
+    public function test_it_generates_requests_by_service_csv_report(): void
+    {
+        $import = $this->createImport();
+
+        $this->createGatewayLog($import, consumerId: 'consumer-a', serviceName: 'catalog-service');
+        $this->createGatewayLog($import, consumerId: 'consumer-b', serviceName: 'catalog-service');
+        $this->createGatewayLog($import, consumerId: 'consumer-c', serviceName: 'billing-service');
+
+        $export = $this->makeService()->export(
+            type: ReportType::RequestsByService,
+            outputDirectory: $this->temporaryDirectory,
+        );
+
+        $this->assertSame(ReportType::RequestsByService, $export->type);
+        $this->assertSame(ReportExportStatus::Finished, $export->status);
+        $this->assertFileExists($export->output_path);
+
+        $rows = $this->readCsv($export->output_path);
+
+        $this->assertSame([
+            ['service_name', 'total'],
+            ['catalog-service', '2'],
+            ['billing-service', '1'],
+        ], $rows);
+    }
+
     private function createImport(): LogImport
     {
         return LogImport::query()->create([
