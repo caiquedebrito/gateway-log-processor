@@ -216,6 +216,48 @@ class GatewayLogParserTest extends TestCase
         );
     }
 
+    public function test_it_extracts_consumer_id_when_it_is_a_string(): void
+    {
+        $payload = $this->validPayload([
+            'authenticated_entity' => [
+                'consumer_id' => '80f74eef-31b8-45d5-c525-ae532297ea8e',
+            ],
+        ]);
+
+        $data = $this->parser->parse(
+            line: json_encode($payload, JSON_THROW_ON_ERROR),
+            lineNumber: 1,
+            byteOffset: 0,
+        );
+
+        $this->assertSame(
+            '80f74eef-31b8-45d5-c525-ae532297ea8e',
+            $data->consumerId,
+        );
+    }
+
+    public function test_it_extracts_consumer_id_when_it_is_an_object_with_uuid(): void
+    {
+        $payload = $this->validPayload([
+            'authenticated_entity' => [
+                'consumer_id' => [
+                    'uuid' => '72b34d31-4c14-3bae-9cc6-516a0939c9d6',
+                ],
+            ],
+        ]);
+
+        $data = $this->parser->parse(
+            line: json_encode($payload, JSON_THROW_ON_ERROR),
+            lineNumber: 1,
+            byteOffset: 0,
+        );
+
+        $this->assertSame(
+            '72b34d31-4c14-3bae-9cc6-516a0939c9d6',
+            $data->consumerId,
+        );
+    }
+
     private function validLogLine(): string
     {
         return json_encode([
@@ -265,6 +307,36 @@ class GatewayLogParserTest extends TestCase
             $expected,
             $data->startedAt->format('Y-m-d H:i:s.u P')
         );
+    }
+
+    private function validPayload(array $overrides = []): array
+    {
+        return array_replace_recursive([
+            'request' => [
+                'method' => 'GET',
+                'uri' => '/',
+                'url' => 'http://yost.com',
+                'size' => 174,
+            ],
+            'response' => [
+                'status' => 500,
+                'size' => 878,
+            ],
+            'authenticated_entity' => [
+                'consumer_id' => 'default-consumer-id',
+            ],
+            'service' => [
+                'id' => 'c3e86413-648a-3552-90c3-b13491ee07d6',
+                'name' => 'ritchie',
+            ],
+            'latencies' => [
+                'proxy' => 1836,
+                'gateway' => 8,
+                'request' => 1058,
+            ],
+            'client_ip' => '75.241.168.121',
+            'started_at' => 1566660387,
+        ], $overrides);
     }
 
     /**

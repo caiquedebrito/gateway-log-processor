@@ -7,14 +7,20 @@ namespace App\Jobs;
 use App\Application\GatewayLog\Services\ProcessGatewayLogImportService;
 use App\Domain\GatewayLog\Enums\LogImportStatus;
 use App\Models\LogImport;
+use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Queue\Queueable as FoundationQueueable;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Queue\SerializesModels;
 use Throwable;
 
 final class ProcessGatewayLogImportJob implements ShouldQueue
 {
-    use FoundationQueueable;
+    use Dispatchable;
+    use InteractsWithQueue;
+    use Queueable;
+    use SerializesModels;
 
     public int $tries = 3;
 
@@ -23,7 +29,9 @@ final class ProcessGatewayLogImportJob implements ShouldQueue
     public function __construct(
         public int $logImportId,
         public int $chunkSize = 1000,
-    ) {}
+    ) {
+        $this->onQueue('logs');
+    }
 
     /**
      * @return array<int, object>

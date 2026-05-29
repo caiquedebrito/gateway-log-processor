@@ -9,6 +9,7 @@ use App\Domain\GatewayLog\DTO\LatencyData;
 use App\Domain\GatewayLog\Exceptions\InvalidLogLineException;
 use Carbon\CarbonImmutable;
 use DateTimeZone;
+use Illuminate\Support\Arr;
 use JsonException;
 
 final class GatewayLogParser
@@ -29,7 +30,7 @@ final class GatewayLogParser
         return new GatewayLogData(
             lineNumber: $lineNumber,
             byteOffset: $byteOffset,
-            consumerId: $this->stringOrNull($payload['authenticated_entity']['consumer_id'] ?? null),
+            consumerId: $this->extractConsumerId($payload),
             serviceId: $this->stringOrNull($payload['service']['id'] ?? null),
             serviceName: $this->stringOrNull($payload['service']['name'] ?? null),
             requestMethod: $this->stringOrNull($payload['request']['method'] ?? null),
@@ -99,6 +100,21 @@ final class GatewayLogParser
 
         return CarbonImmutable::createFromTimestamp($seconds, $this->timezone)
             ->addMilliseconds($remainingMilliseconds);
+    }
+
+    private function extractConsumerId(array $payload): ?string
+    {
+        $consumerId = Arr::get($payload, 'authenticated_entity.consumer_id');
+
+        if (is_string($consumerId)) {
+            return $this->stringOrNull($consumerId);
+        }
+
+        if (is_array($consumerId)) {
+            return $this->stringOrNull($consumerId['uuid'] ?? null);
+        }
+
+        return null;
     }
 
     private function stringOrNull(mixed $value): ?string
