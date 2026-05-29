@@ -8,6 +8,7 @@ use App\Application\GatewayLog\Services\QueueGatewayLogReportExportService;
 use App\Domain\GatewayLog\Enums\ReportType;
 use App\Http\Requests\StoreGatewayLogReportRequest;
 use App\Http\Resources\ReportExportResource;
+use App\Models\ReportExport;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -26,5 +27,10 @@ final class GatewayLogReportController extends Controller
         return (new ReportExportResource($export))
             ->response()
             ->setStatusCode(Response::HTTP_ACCEPTED);
+    }
+
+    public function show(ReportExport $reportExport): ReportExportResource
+    {
+        return new ReportExportResource($reportExport);
     }
 }
