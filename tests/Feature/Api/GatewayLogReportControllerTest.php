@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Api;
 
+use App\Domain\GatewayLog\Enums\ReportDateField;
 use App\Domain\GatewayLog\Enums\ReportExportStatus;
 use App\Domain\GatewayLog\Enums\ReportType;
 use App\Jobs\ExportGatewayLogReportJob;
@@ -385,6 +386,183 @@ final class GatewayLogReportControllerTest extends TestCase
         $response = $this->getJson('/api/gateway-log/reports/999999/download');
 
         $response->assertNotFound();
+    }
+
+    public function test_it_queues_report_generation_without_filters(): void
+    {
+        Bus::fake();
+
+        $response = $this->postJson('/api/gateway-log/reports', [
+            'type' => ReportType::RequestsByConsumer->value,
+        ]);
+
+        $response
+            ->assertAccepted()
+            ->assertJsonPath('data.type', ReportType::RequestsByConsumer->value)
+            ->assertJsonPath('data.status', ReportExportStatus::Queued->value)
+            ->assertJsonPath('data.filters', null)
+            ->assertJsonPath('data.output_path', null)
+            ->assertJsonPath('data.started_at', null)
+            ->assertJsonPath('data.finished_at', null)
+            ->assertJsonPath('data.failed_at', null);
+
+        $export = ReportExport::query()->firstOrFail();
+
+        $this->assertNull($export->filters);
+
+        Bus::assertDispatched(
+            ExportGatewayLogReportJob::class,
+            function (ExportGatewayLogReportJob $job) use ($export): bool {
+                return $job->reportExportId === $export->id
+                    && $job->queue === 'reports';
+            }
+        );
+    }
+
+    public function test_it_queues_report_generation_with_started_at_filters(): void
+    {
+        Bus::fake();
+
+        $response = $this->postJson('/api/gateway-log/reports', [
+            'type' => ReportType::RequestsByService->value,
+            'date_field' => ReportDateField::StartedAt->value,
+            'date_from' => '2026-05-01T00:00:00Z',
+            'date_to' => '2026-05-31T23:59:59Z',
+        ]);
+
+        $response
+            ->assertAccepted()
+            ->assertJsonPath('data.type', ReportType::RequestsByService->value)
+            ->assertJsonPath('data.status', ReportExportStatus::Queued->value)
+            ->assertJsonPath('data.filters.date_field', ReportDateField::StartedAt->value)
+            ->assertJsonPath('data.filters.date_from', '2026-05-01T00:00:00.000000Z')
+            ->assertJsonPath('data.filters.date_to', '2026-05-31T23:59:59.000000Z');
+
+        $export = ReportExport::query()->firstOrFail();
+
+        $this->assertSame([
+            'date_field' => 'started_at',
+            'date_from' => '2026-05-01T00:00:00.000000Z',
+            'date_to' => '2026-05-31T23:59:59.000000Z',
+        ], $export->filters);
+
+        Bus::assertDispatched(ExportGatewayLogReportJob::class);
+    }
+
+    public function test_it_queues_report_generation_with_processed_at_filters(): void
+    {
+        Bus::fake();
+
+        $response = $this->postJson('/api/gateway-log/reports', [
+            'type' => ReportType::AverageLatencyByService->value,
+            'date_field' => ReportDateField::ProcessedAt->value,
+            'date_from' => '2026-06-01T00:00:00Z',
+            'date_to' => '2026-06-30T23:59:59Z',
+        ]);
+
+        $response
+            ->assertAccepted()
+            ->assertJsonPath('data.type', ReportType::AverageLatencyByService->value)
+            ->assertJsonPath('data.status', ReportExportStatus::Queued->value)
+            ->assertJsonPath('data.filters.date_field', ReportDateField::ProcessedAt->value)
+            ->assertJsonPath('data.filters.date_from', '2026-06-01T00:00:00.000000Z')
+            ->assertJsonPath('data.filters.date_to', '2026-06-30T23:59:59.000000Z');
+
+        $export = ReportExport::query()->firstOrFail();
+
+        $this->assertSame([
+            'date_field' => 'processed_at',
+            'date_from' => '2026-06-01T00:00:00.000000Z',
+            'date_to' => '2026-06-30T23:59:59.000000Z',
+        ], $export->filters);
+
+        Bus::assertDispatched(ExportGatewayLogReportJob::class);
+    }
+
+    public function test_it_defaults_to_started_at_when_date_range_is_sent_without_date_field(): void
+    {
+        Bus::fake();
+
+        $response = $this->postJson('/api/gateway-log/reports', [
+            'type' => ReportType::RequestsByConsumer->value,
+            'date_from' => '2026-05-01T00:00:00Z',
+            'date_to' => '2026-05-31T23:59:59Z',
+        ]);
+
+        $response
+            ->assertAccepted()
+            ->assertJsonPath('data.filters.date_field', ReportDateField::StartedAt->value)
+            ->assertJsonPath('data.filters.date_from', '2026-05-01T00:00:00.000000Z')
+            ->assertJsonPath('data.filters.date_to', '2026-05-31T23:59:59.000000Z');
+
+        $export = ReportExport::query()->firstOrFail();
+
+        $this->assertSame('started_at', $export->filters['date_field']);
+
+        Bus::assertDispatched(ExportGatewayLogReportJob::class);
+    }
+
+    public function test_it_returns_validation_error_when_date_field_is_invalid(): void
+    {
+        Bus::fake();
+
+        $response = $this->postJson('/api/gateway-log/reports', [
+            'type' => ReportType::RequestsByConsumer->value,
+            'date_field' => 'created_at',
+            'date_from' => '2026-05-01T00:00:00Z',
+            'date_to' => '2026-05-31T23:59:59Z',
+        ]);
+
+        $response
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['date_field']);
+
+        $this->assertSame(0, ReportExport::query()->count());
+
+        Bus::assertNotDispatched(ExportGatewayLogReportJob::class);
+    }
+
+    public function test_it_returns_validation_error_when_date_to_is_before_date_from(): void
+    {
+        Bus::fake();
+
+        $response = $this->postJson('/api/gateway-log/reports', [
+            'type' => ReportType::RequestsByConsumer->value,
+            'date_field' => ReportDateField::StartedAt->value,
+            'date_from' => '2026-05-31T23:59:59Z',
+            'date_to' => '2026-05-01T00:00:00Z',
+        ]);
+
+        $response
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['date_to']);
+
+        $this->assertSame(0, ReportExport::query()->count());
+
+        Bus::assertNotDispatched(ExportGatewayLogReportJob::class);
+    }
+
+    public function test_it_does_not_generate_csv_synchronously_when_filters_are_sent(): void
+    {
+        Bus::fake();
+
+        $this->postJson('/api/gateway-log/reports', [
+            'type' => ReportType::RequestsByConsumer->value,
+            'date_field' => ReportDateField::StartedAt->value,
+            'date_from' => '2026-05-01T00:00:00Z',
+            'date_to' => '2026-05-31T23:59:59Z',
+        ])->assertAccepted();
+
+        $export = ReportExport::query()->firstOrFail();
+
+        $this->assertSame(ReportExportStatus::Queued, $export->status);
+        $this->assertNotNull($export->filters);
+        $this->assertNull($export->output_path);
+        $this->assertNull($export->started_at);
+        $this->assertNull($export->finished_at);
+        $this->assertNull($export->failed_at);
+
+        Bus::assertDispatched(ExportGatewayLogReportJob::class);
     }
 
     private function createTemporaryCsvFile(string $filename, string $content): string

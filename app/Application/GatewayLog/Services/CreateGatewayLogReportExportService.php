@@ -17,6 +17,11 @@ final readonly class CreateGatewayLogReportExportService
     ): ReportExport {
         $filtersPayload = $filters?->toDatabaseArray() ?? [];
 
+        logger()->info('Creating gateway log report export', [
+            'type' => $type->value,
+            'filters' => $filtersPayload,
+        ]);
+
         return ReportExport::query()->create([
             'type' => $type,
             'status' => ReportExportStatus::Queued,

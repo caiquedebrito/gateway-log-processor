@@ -33,6 +33,10 @@ final class RequestsByConsumerReportGenerator implements GatewayLogReportGenerat
     {
         $query = DB::table('api_gateway_logs');
 
+        logger()->info('Generating RequestsByConsumer report with filters', [
+            'filters' => $filters->toDatabaseArray(),
+        ]);
+
         $this->queryFilter->apply($query, $filters);
 
         $rows = $query
