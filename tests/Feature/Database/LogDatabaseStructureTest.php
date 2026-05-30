@@ -85,6 +85,7 @@ class LogDatabaseStructureTest extends TestCase
             'id',
             'type',
             'status',
+            'filters',
             'output_path',
             'started_at',
             'finished_at',
