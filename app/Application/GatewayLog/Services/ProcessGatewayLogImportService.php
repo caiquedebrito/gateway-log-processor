@@ -18,6 +18,7 @@ final readonly class ProcessGatewayLogImportService
     public function __construct(
         private NdjsonLogFileReader $reader,
         private GatewayLogParser $parser,
+        private GatewayLogEventHashGenerator $eventHashGenerator,
     ) {}
 
     public function processChunk(LogImport $import, int $chunkSize = 1000): ImportProgressData
@@ -47,9 +48,12 @@ final readonly class ProcessGatewayLogImportService
                         byteOffset: $line->byteOffset,
                     );
 
+                    $eventHash = $this->eventHashGenerator->generate($logData);
+
                     $logRows[] = ApiGatewayLog::makeInsertPayload(
                         logImportId: (int) $import->id,
                         data: $logData,
+                        eventHash: $eventHash,
                         processedAt: $processedAt,
                     );
                 } catch (Throwable $exception) {

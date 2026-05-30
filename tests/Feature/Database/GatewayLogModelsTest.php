@@ -120,6 +120,7 @@ final class GatewayLogModelsTest extends TestCase
 
         $log = ApiGatewayLog::query()->create([
             'log_import_id' => $import->id,
+            'event_hash' => hash('sha256', 'consumer-1-catalog-service-1'),
             'line_number' => 1,
             'byte_offset' => 0,
             'consumer_id' => '80f74eef-31b8-45d5-c525-ae532297ea8e',
@@ -170,6 +171,7 @@ final class GatewayLogModelsTest extends TestCase
 
         $log = ApiGatewayLog::query()->create([
             'log_import_id' => $import->id,
+            'event_hash' => hash('sha256', 'consumer-2-catalog-service-1'),
             'line_number' => 1,
             'byte_offset' => 0,
             'consumer_id' => 'consumer-1',

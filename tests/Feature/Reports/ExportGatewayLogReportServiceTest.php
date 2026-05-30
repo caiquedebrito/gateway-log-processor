@@ -217,6 +217,7 @@ final class ExportGatewayLogReportServiceTest extends TestCase
 
         return ApiGatewayLog::query()->create([
             'log_import_id' => $import->id,
+            'event_hash' => hash('sha256', 'test-event-'.$consumerId.'-'.$serviceName),
             'line_number' => random_int(1, 999999),
             'byte_offset' => random_int(0, 999999),
             'consumer_id' => $consumerId,
