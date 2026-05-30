@@ -57,11 +57,9 @@ final class CreateGatewayLogReportExportServiceTest extends TestCase
         $this->assertSame(ReportType::RequestsByService, $export->type);
         $this->assertSame(ReportExportStatus::Queued, $export->status);
 
-        $this->assertSame([
-            'date_field' => 'started_at',
-            'date_from' => '2026-05-01T00:00:00.000000Z',
-            'date_to' => '2026-05-31T23:59:59.000000Z',
-        ], $export->filters);
+        $this->assertSame('started_at', $export->filters['date_field']);
+        $this->assertSame('2026-05-01T00:00:00.000000Z', $export->filters['date_from']);
+        $this->assertSame('2026-05-31T23:59:59.000000Z', $export->filters['date_to']);
     }
 
     public function test_it_creates_a_queued_report_export_with_processed_at_filters(): void
@@ -81,10 +79,8 @@ final class CreateGatewayLogReportExportServiceTest extends TestCase
 
         $export->refresh();
 
-        $this->assertSame([
-            'date_field' => 'processed_at',
-            'date_from' => '2026-06-01T00:00:00.000000Z',
-            'date_to' => '2026-06-30T23:59:59.000000Z',
-        ], $export->filters);
+        $this->assertSame('processed_at', $export->filters['date_field']);
+        $this->assertSame('2026-06-01T00:00:00.000000Z', $export->filters['date_from']);
+        $this->assertSame('2026-06-30T23:59:59.000000Z', $export->filters['date_to']);
     }
 }

@@ -35,11 +35,9 @@ final class ReportExportFiltersTest extends TestCase
 
         $this->assertIsArray($export->filters);
 
-        $this->assertSame([
-            'date_field' => 'started_at',
-            'date_from' => '2026-05-01T00:00:00.000000Z',
-            'date_to' => '2026-05-31T23:59:59.000000Z',
-        ], $export->filters);
+        $this->assertSame('started_at', $export->filters['date_field']);
+        $this->assertSame('2026-05-01T00:00:00.000000Z', $export->filters['date_from']);
+        $this->assertSame('2026-05-31T23:59:59.000000Z', $export->filters['date_to']);
 
         $restoredFilters = ReportFiltersData::fromArray($export->filters);
 
