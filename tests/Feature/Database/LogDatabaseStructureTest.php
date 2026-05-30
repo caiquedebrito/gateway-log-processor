@@ -41,6 +41,7 @@ class LogDatabaseStructureTest extends TestCase
         $this->assertTrue(Schema::hasColumns('api_gateway_logs', [
             'id',
             'log_import_id',
+            'event_hash',
             'line_number',
             'byte_offset',
             'consumer_id',
@@ -127,6 +128,7 @@ class LogDatabaseStructureTest extends TestCase
 
         $payload = [
             'log_import_id' => $importId,
+            'event_hash' => hash('sha256', 'test-event'),
             'line_number' => 1,
             'byte_offset' => 0,
             'consumer_id' => '80f74eef-31b8-45d5-c525-ae532297ea8e',

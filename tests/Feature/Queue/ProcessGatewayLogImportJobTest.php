@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Queue;
 
+use App\Application\GatewayLog\Services\GatewayLogEventHashGenerator;
 use App\Application\GatewayLog\Services\GatewayLogParser;
 use App\Application\GatewayLog\Services\NdjsonLogFileReader;
 use App\Application\GatewayLog\Services\ProcessGatewayLogImportService;
@@ -138,6 +139,8 @@ final class ProcessGatewayLogImportJobTest extends TestCase
         return new ProcessGatewayLogImportService(
             reader: new NdjsonLogFileReader,
             parser: new GatewayLogParser,
+            eventHashGenerator: new GatewayLogEventHashGenerator,
+
         );
     }
 

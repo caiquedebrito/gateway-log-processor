@@ -18,6 +18,7 @@ final readonly class ProcessGatewayLogImportService
     public function __construct(
         private NdjsonLogFileReader $reader,
         private GatewayLogParser $parser,
+        private GatewayLogEventHashGenerator $eventHashGenerator,
     ) {}
 
     public function processChunk(LogImport $import, int $chunkSize = 1000): ImportProgressData
@@ -36,8 +37,19 @@ final readonly class ProcessGatewayLogImportService
 
             $processedAt = now();
 
-            $logRows = [];
+            /**
+             * Chave: event_hash
+             * Valor: payload pronto para insert.
+             *
+             * Usa o hash como chave para remover duplicados dentro do próprio chunk
+             * sem precisar fazer loops caros depois.
+             *
+             * @var array<string, array<string, mixed>> $logRowsByEventHash
+             */
+            $logRowsByEventHash = [];
+
             $errorRows = [];
+            $validLinesCount = 0;
 
             foreach ($chunk->lines as $line) {
                 try {
@@ -47,9 +59,18 @@ final readonly class ProcessGatewayLogImportService
                         byteOffset: $line->byteOffset,
                     );
 
-                    $logRows[] = ApiGatewayLog::makeInsertPayload(
+                    $validLinesCount++;
+
+                    $eventHash = $this->eventHashGenerator->generate($logData);
+
+                    if (isset($logRowsByEventHash[$eventHash])) {
+                        continue;
+                    }
+
+                    $logRowsByEventHash[$eventHash] = ApiGatewayLog::makeInsertPayload(
                         logImportId: (int) $import->id,
                         data: $logData,
+                        eventHash: $eventHash,
                         processedAt: $processedAt,
                     );
                 } catch (Throwable $exception) {
@@ -64,20 +85,20 @@ final readonly class ProcessGatewayLogImportService
                 }
             }
 
-            $successfulLines = count($logRows);
+            $newLogRows = $this->filterNewLogRows($logRowsByEventHash);
             $failedLines = count($errorRows);
 
             DB::transaction(function () use (
                 $import,
                 $chunk,
-                $logRows,
+                $newLogRows,
                 $errorRows,
-                $successfulLines,
+                $validLinesCount,
                 $failedLines,
                 $processedAt,
             ): void {
-                if ($logRows !== []) {
-                    DB::table('api_gateway_logs')->insert($logRows);
+                if ($newLogRows !== []) {
+                    DB::table('api_gateway_logs')->insertOrIgnore($newLogRows);
                 }
 
                 if ($errorRows !== []) {
@@ -89,7 +110,7 @@ final readonly class ProcessGatewayLogImportService
                     ->update([
                         'current_offset' => $chunk->currentOffset,
                         'last_line_number' => $chunk->lastLineNumber,
-                        'total_lines_processed' => DB::raw('total_lines_processed + '.$successfulLines),
+                        'total_lines_processed' => DB::raw('total_lines_processed + '.$validLinesCount),
                         'total_lines_failed' => DB::raw('total_lines_failed + '.$failedLines),
                         'updated_at' => $processedAt,
                     ]);
@@ -114,6 +135,48 @@ final readonly class ProcessGatewayLogImportService
 
             throw $exception;
         }
+    }
+
+    public function process(LogImport $import, int $chunkSize = 1000): ImportProgressData
+    {
+        return $this->processChunk($import, $chunkSize);
+    }
+
+    private function filterNewLogRows(array $logRowsByEventHash): array
+    {
+        if ($logRowsByEventHash === []) {
+            return [];
+        }
+
+        $eventHashes = array_keys($logRowsByEventHash);
+        $existingHashes = $this->findExistingEventHashes($eventHashes);
+
+        if ($existingHashes === []) {
+            return array_values($logRowsByEventHash);
+        }
+
+        foreach ($existingHashes as $existingHash) {
+            unset($logRowsByEventHash[$existingHash]);
+        }
+
+        return array_values($logRowsByEventHash);
+    }
+
+    private function findExistingEventHashes(array $eventHashes): array
+    {
+        $existingHashes = [];
+
+        foreach (array_chunk($eventHashes, 1000) as $hashChunk) {
+            $rows = DB::table('api_gateway_logs')
+                ->whereIn('event_hash', $hashChunk)
+                ->pluck('event_hash');
+
+            foreach ($rows as $hash) {
+                $existingHashes[(string) $hash] = (string) $hash;
+            }
+        }
+
+        return $existingHashes;
     }
 
     private function ensureImportCanBeProcessed(LogImport $import, int $chunkSize): void
