@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Application\GatewayLog\Services;
 
 use App\Application\GatewayLog\Reports\GatewayLogReportFactory;
+use App\Domain\GatewayLog\DTO\ReportFiltersData;
 use App\Domain\GatewayLog\Enums\ReportExportStatus;
 use App\Domain\GatewayLog\Enums\ReportType;
 use App\Models\ReportExport;
@@ -35,6 +36,8 @@ final readonly class GenerateGatewayLogReportService
 
             $generator = $this->factory->make($type);
 
+            $filters = ReportFiltersData::fromArray($export->filters);
+
             $outputPath = $this->buildOutputPath(
                 export: $export,
                 type: $type,
@@ -44,7 +47,7 @@ final readonly class GenerateGatewayLogReportService
             $this->writer->write(
                 outputPath: $outputPath,
                 header: $generator->header(),
-                rows: $generator->rows(),
+                rows: $generator->rows($filters),
             );
 
             $export->markAsFinished($outputPath);

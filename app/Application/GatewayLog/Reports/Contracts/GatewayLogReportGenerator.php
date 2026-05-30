@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Application\GatewayLog\Reports\Contracts;
 
+use App\Domain\GatewayLog\DTO\ReportFiltersData;
 use App\Domain\GatewayLog\Enums\ReportType;
 
 interface GatewayLogReportGenerator
@@ -18,5 +19,5 @@ interface GatewayLogReportGenerator
     /**
      * @return iterable<list<int|string|null>>
      */
-    public function rows(): iterable;
+    public function rows(ReportFiltersData $filters): iterable;
 }
