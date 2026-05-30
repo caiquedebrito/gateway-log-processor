@@ -20,6 +20,7 @@ final class ApiGatewayLog extends Model
 
     protected $fillable = [
         'log_import_id',
+        'event_hash',
         'line_number',
         'byte_offset',
         'consumer_id',
@@ -63,10 +64,12 @@ final class ApiGatewayLog extends Model
     public static function makeInsertPayload(
         int $logImportId,
         GatewayLogData $data,
+        string $eventHash,
         CarbonInterface $processedAt,
     ): array {
         return [
             'log_import_id' => $logImportId,
+            'event_hash' => $eventHash,
             'line_number' => $data->lineNumber,
             'byte_offset' => $data->byteOffset,
             'consumer_id' => $data->consumerId,
