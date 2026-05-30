@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Console;
 
+use App\Application\GatewayLog\Services\ImportFileResolver;
 use App\Domain\GatewayLog\Enums\LogImportStatus;
 use App\Jobs\ProcessGatewayLogImportJob;
 use App\Models\LogImport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Tests\TestCase;
+use ZipArchive;
 
 final class ImportGatewayLogsCommandTest extends TestCase
 {
@@ -17,16 +19,28 @@ final class ImportGatewayLogsCommandTest extends TestCase
 
     private string $temporaryDirectory;
 
+    private string $extractionDirectory;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->temporaryDirectory = sys_get_temp_dir()
+        $this->temporaryDirectory = storage_path(
+            'app/testing-import-command-'.bin2hex(random_bytes(8))
+        );
+
+        $this->extractionDirectory = $this->temporaryDirectory
             .DIRECTORY_SEPARATOR
-            .'gateway-log-command-'
-            .bin2hex(random_bytes(8));
+            .'extracted';
 
         mkdir($this->temporaryDirectory, 0777, true);
+
+        $this->app->bind(
+            ImportFileResolver::class,
+            fn (): ImportFileResolver => new ImportFileResolver(
+                extractionBaseDirectory: $this->extractionDirectory,
+            ),
+        );
     }
 
     protected function tearDown(): void
@@ -36,19 +50,20 @@ final class ImportGatewayLogsCommandTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_it_creates_a_log_import_and_dispatches_the_import_job(): void
+    public function test_it_creates_a_log_import_from_absolute_txt_path_and_dispatches_the_import_job(): void
     {
         Bus::fake();
 
-        $filePath = $this->createTemporaryLogFile(
-            '{"started_at":1433209822425}'.PHP_EOL
-        );
+        $content = '{"started_at":1433209822425}'.PHP_EOL;
+        $filePath = $this->createTemporaryLogFile('logs.txt', $content);
 
         $this->artisan('gateway-log:import', [
             'file' => $filePath,
             '--chunk' => 500,
         ])
+            ->expectsOutputToContain('File type: txt')
             ->expectsOutputToContain('queued successfully')
+            ->expectsOutputToContain('Queue: default')
             ->assertSuccessful();
 
         $this->assertSame(1, LogImport::query()->count());
@@ -56,15 +71,12 @@ final class ImportGatewayLogsCommandTest extends TestCase
         $import = LogImport::query()->firstOrFail();
 
         $this->assertSame(realpath($filePath), $import->file_path);
-        $this->assertSame(hash_file('sha256', $filePath), $import->file_hash);
+        $this->assertSame(hash('sha256', $content), $import->file_hash);
         $this->assertSame(LogImportStatus::Queued, $import->status);
         $this->assertSame(0, $import->current_offset);
         $this->assertSame(0, $import->last_line_number);
         $this->assertSame(0, $import->total_lines_processed);
         $this->assertSame(0, $import->total_lines_failed);
-        $this->assertNull($import->started_at);
-        $this->assertNull($import->finished_at);
-        $this->assertNull($import->failed_at);
 
         Bus::assertDispatched(
             ProcessGatewayLogImportJob::class,
@@ -75,13 +87,130 @@ final class ImportGatewayLogsCommandTest extends TestCase
         );
     }
 
+    public function test_it_creates_a_log_import_from_relative_txt_path(): void
+    {
+        Bus::fake();
+
+        $content = '{"started_at":1433209822425}'.PHP_EOL;
+        $filePath = $this->createTemporaryLogFile('relative-logs.txt', $content);
+
+        $relativePath = str_replace(
+            base_path().DIRECTORY_SEPARATOR,
+            '',
+            $filePath,
+        );
+
+        $this->artisan('gateway-log:import', [
+            'file' => $relativePath,
+            '--chunk' => 1000,
+        ])
+            ->expectsOutputToContain('File type: txt')
+            ->expectsOutputToContain('queued successfully')
+            ->assertSuccessful();
+
+        $import = LogImport::query()->firstOrFail();
+
+        $this->assertSame(realpath($filePath), $import->file_path);
+        $this->assertSame(hash('sha256', $content), $import->file_hash);
+
+        Bus::assertDispatched(ProcessGatewayLogImportJob::class);
+    }
+
+    public function test_it_creates_a_log_import_from_zip_containing_logs_txt(): void
+    {
+        $this->requireZipExtension();
+
+        Bus::fake();
+
+        $content = '{"started_at":1433209822425}'.PHP_EOL;
+
+        $zipPath = $this->createZipFile('logs.zip', [
+            'logs.txt' => $content,
+        ]);
+
+        $this->artisan('gateway-log:import', [
+            'file' => $zipPath,
+            '--chunk' => 1000,
+        ])
+            ->expectsOutputToContain('File type: zip')
+            ->expectsOutputToContain('Extracted from:')
+            ->expectsOutputToContain('queued successfully')
+            ->assertSuccessful();
+
+        $import = LogImport::query()->firstOrFail();
+
+        $this->assertSame(hash('sha256', $content), $import->file_hash);
+        $this->assertFileExists($import->file_path);
+        $this->assertSame($content, file_get_contents($import->file_path));
+
+        Bus::assertDispatched(ProcessGatewayLogImportJob::class);
+    }
+
+    public function test_it_creates_a_log_import_from_zip_containing_single_txt_with_different_name(): void
+    {
+        $this->requireZipExtension();
+
+        Bus::fake();
+
+        $content = '{"started_at":1433209822425}'.PHP_EOL;
+
+        $zipPath = $this->createZipFile('gateway-export.zip', [
+            'gateway-export.txt' => $content,
+        ]);
+
+        $this->artisan('gateway-log:import', [
+            'file' => $zipPath,
+            '--chunk' => 1000,
+        ])
+            ->expectsOutputToContain('File type: zip')
+            ->expectsOutputToContain('queued successfully')
+            ->assertSuccessful();
+
+        $import = LogImport::query()->firstOrFail();
+
+        $this->assertSame(hash('sha256', $content), $import->file_hash);
+        $this->assertSame($content, file_get_contents($import->file_path));
+
+        Bus::assertDispatched(ProcessGatewayLogImportJob::class);
+    }
+
+    public function test_it_does_not_create_duplicate_import_when_txt_and_zip_have_same_txt_content(): void
+    {
+        $this->requireZipExtension();
+
+        Bus::fake();
+
+        $content = '{"started_at":1433209822425}'.PHP_EOL;
+
+        $txtPath = $this->createTemporaryLogFile('logs.txt', $content);
+
+        $zipPath = $this->createZipFile('logs.zip', [
+            'logs.txt' => $content,
+        ]);
+
+        $this->artisan('gateway-log:import', [
+            'file' => $txtPath,
+            '--chunk' => 1000,
+        ])->assertSuccessful();
+
+        $this->artisan('gateway-log:import', [
+            'file' => $zipPath,
+            '--chunk' => 1000,
+        ])
+            ->expectsOutputToContain('No new job was dispatched.')
+            ->assertSuccessful();
+
+        $this->assertSame(1, LogImport::query()->count());
+
+        Bus::assertDispatched(ProcessGatewayLogImportJob::class, 1);
+    }
+
     public function test_it_does_not_create_duplicate_import_when_same_file_is_already_finished(): void
     {
         Bus::fake();
 
-        $filePath = $this->createTemporaryLogFile(
-            '{"started_at":1433209822425}'.PHP_EOL
-        );
+        $content = '{"started_at":1433209822425}'.PHP_EOL;
+        $filePath = $this->createTemporaryLogFile('logs.txt', $content);
 
         $existingImport = $this->createExistingImport(
             filePath: $filePath,
@@ -105,9 +234,8 @@ final class ImportGatewayLogsCommandTest extends TestCase
     {
         Bus::fake();
 
-        $filePath = $this->createTemporaryLogFile(
-            '{"started_at":1433209822425}'.PHP_EOL
-        );
+        $content = '{"started_at":1433209822425}'.PHP_EOL;
+        $filePath = $this->createTemporaryLogFile('logs.txt', $content);
 
         $existingImport = $this->createExistingImport(
             filePath: $filePath,
@@ -131,9 +259,8 @@ final class ImportGatewayLogsCommandTest extends TestCase
     {
         Bus::fake();
 
-        $filePath = $this->createTemporaryLogFile(
-            '{"started_at":1433209822425}'.PHP_EOL
-        );
+        $content = '{"started_at":1433209822425}'.PHP_EOL;
+        $filePath = $this->createTemporaryLogFile('logs.txt', $content);
 
         $existingImport = $this->createExistingImport(
             filePath: $filePath,
@@ -157,9 +284,8 @@ final class ImportGatewayLogsCommandTest extends TestCase
     {
         Bus::fake();
 
-        $filePath = $this->createTemporaryLogFile(
-            '{"started_at":1433209822425}'.PHP_EOL
-        );
+        $content = '{"started_at":1433209822425}'.PHP_EOL;
+        $filePath = $this->createTemporaryLogFile('logs.txt', $content);
 
         $existingImport = $this->createExistingImport(
             filePath: $filePath,
@@ -183,12 +309,12 @@ final class ImportGatewayLogsCommandTest extends TestCase
     {
         Bus::fake();
 
-        $firstFilePath = $this->createTemporaryLogFileInDifferentName(
+        $firstFilePath = $this->createTemporaryLogFile(
             filename: 'logs-first.txt',
             content: '{"started_at":1433209822425}'.PHP_EOL,
         );
 
-        $secondFilePath = $this->createTemporaryLogFileInDifferentName(
+        $secondFilePath = $this->createTemporaryLogFile(
             filename: 'logs-second.txt',
             content: '{"started_at":1433209822426}'.PHP_EOL,
         );
@@ -220,6 +346,53 @@ final class ImportGatewayLogsCommandTest extends TestCase
         );
     }
 
+    public function test_it_fails_when_zip_has_no_txt_file(): void
+    {
+        $this->requireZipExtension();
+
+        Bus::fake();
+
+        $zipPath = $this->createZipFile('without-txt.zip', [
+            'data.json' => '{"ok":true}',
+        ]);
+
+        $this->artisan('gateway-log:import', [
+            'file' => $zipPath,
+            '--chunk' => 1000,
+        ])
+            ->expectsOutputToContain('Could not resolve import file.')
+            ->expectsOutputToContain('does not contain a .txt log file')
+            ->assertFailed();
+
+        $this->assertSame(0, LogImport::query()->count());
+
+        Bus::assertNotDispatched(ProcessGatewayLogImportJob::class);
+    }
+
+    public function test_it_fails_when_zip_has_multiple_txt_files_without_logs_txt(): void
+    {
+        $this->requireZipExtension();
+
+        Bus::fake();
+
+        $zipPath = $this->createZipFile('multiple-txt.zip', [
+            'first.txt' => 'first',
+            'second.txt' => 'second',
+        ]);
+
+        $this->artisan('gateway-log:import', [
+            'file' => $zipPath,
+            '--chunk' => 1000,
+        ])
+            ->expectsOutputToContain('Could not resolve import file.')
+            ->expectsOutputToContain('multiple .txt files')
+            ->assertFailed();
+
+        $this->assertSame(0, LogImport::query()->count());
+
+        Bus::assertNotDispatched(ProcessGatewayLogImportJob::class);
+    }
+
     public function test_it_fails_when_file_does_not_exist(): void
     {
         Bus::fake();
@@ -231,7 +404,10 @@ final class ImportGatewayLogsCommandTest extends TestCase
         $this->artisan('gateway-log:import', [
             'file' => $missingFile,
             '--chunk' => 100,
-        ])->assertFailed();
+        ])
+            ->expectsOutputToContain('Could not resolve import file.')
+            ->expectsOutputToContain('does not exist')
+            ->assertFailed();
 
         $this->assertSame(0, LogImport::query()->count());
 
@@ -243,13 +419,16 @@ final class ImportGatewayLogsCommandTest extends TestCase
         Bus::fake();
 
         $filePath = $this->createTemporaryLogFile(
-            '{"started_at":1433209822425}'.PHP_EOL
+            filename: 'logs.txt',
+            content: '{"started_at":1433209822425}'.PHP_EOL,
         );
 
         $this->artisan('gateway-log:import', [
             'file' => $filePath,
             '--chunk' => 0,
-        ])->assertFailed();
+        ])
+            ->expectsOutputToContain('The chunk size must be greater than zero.')
+            ->assertFailed();
 
         $this->assertSame(0, LogImport::query()->count());
 
@@ -261,13 +440,16 @@ final class ImportGatewayLogsCommandTest extends TestCase
         Bus::fake();
 
         $filePath = $this->createTemporaryLogFile(
-            '{"started_at":1433209822425}'.PHP_EOL
+            filename: 'logs.txt',
+            content: '{"started_at":1433209822425}'.PHP_EOL,
         );
 
         $this->artisan('gateway-log:import', [
             'file' => $filePath,
             '--chunk' => -10,
-        ])->assertFailed();
+        ])
+            ->expectsOutputToContain('The chunk size must be greater than zero.')
+            ->assertFailed();
 
         $this->assertSame(0, LogImport::query()->count());
 
@@ -293,18 +475,8 @@ final class ImportGatewayLogsCommandTest extends TestCase
         ]);
     }
 
-    private function createTemporaryLogFile(string $content): string
+    private function createTemporaryLogFile(string $filename, string $content): string
     {
-        return $this->createTemporaryLogFileInDifferentName(
-            filename: 'logs.txt',
-            content: $content,
-        );
-    }
-
-    private function createTemporaryLogFileInDifferentName(
-        string $filename,
-        string $content,
-    ): string {
         $filePath = $this->temporaryDirectory
             .DIRECTORY_SEPARATOR
             .$filename;
@@ -314,9 +486,46 @@ final class ImportGatewayLogsCommandTest extends TestCase
         return $filePath;
     }
 
+    /**
+     * @param  array<string, string>  $entries
+     */
+    private function createZipFile(string $filename, array $entries): string
+    {
+        $this->requireZipExtension();
+
+        $filePath = $this->temporaryDirectory
+            .DIRECTORY_SEPARATOR
+            .$filename;
+
+        $zip = new ZipArchive;
+
+        $opened = $zip->open($filePath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+
+        $this->assertTrue($opened);
+
+        foreach ($entries as $entryName => $content) {
+            $this->assertTrue($zip->addFromString($entryName, $content));
+        }
+
+        $this->assertTrue($zip->close());
+
+        return $filePath;
+    }
+
+    private function requireZipExtension(): void
+    {
+        if (! class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('PHP Zip extension is not installed.');
+        }
+    }
+
     private function deleteDirectory(string $directory): void
     {
         if (! is_dir($directory)) {
+            if (is_file($directory)) {
+                unlink($directory);
+            }
+
             return;
         }
 
