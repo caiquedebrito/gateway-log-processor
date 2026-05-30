@@ -18,6 +18,7 @@ final class ReportExport extends Model
     protected $fillable = [
         'type',
         'status',
+        'filters',
         'output_path',
         'started_at',
         'finished_at',
@@ -30,6 +31,7 @@ final class ReportExport extends Model
         return [
             'type' => ReportType::class,
             'status' => ReportExportStatus::class,
+            'filters' => 'array',
             'started_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',
             'failed_at' => 'immutable_datetime',

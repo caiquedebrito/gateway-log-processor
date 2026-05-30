@@ -7,7 +7,9 @@ namespace Tests\Feature\Queue;
 use App\Application\GatewayLog\Reports\GatewayLogReportFactory;
 use App\Application\GatewayLog\Services\CsvReportWriter;
 use App\Application\GatewayLog\Services\GenerateGatewayLogReportService;
+use App\Domain\GatewayLog\DTO\ReportFiltersData;
 use App\Domain\GatewayLog\Enums\LogImportStatus;
+use App\Domain\GatewayLog\Enums\ReportDateField;
 use App\Domain\GatewayLog\Enums\ReportExportStatus;
 use App\Domain\GatewayLog\Enums\ReportType;
 use App\Jobs\ExportGatewayLogReportJob;
@@ -209,6 +211,58 @@ final class ExportGatewayLogReportJobTest extends TestCase
         );
     }
 
+    public function test_it_generates_csv_using_persisted_report_filters(): void
+    {
+        $import = $this->createImport();
+
+        $this->createGatewayLog(
+            import: $import,
+            lineNumber: 1,
+            consumerId: 'consumer-a',
+            serviceName: 'catalog-service',
+            startedAt: '2026-05-10 10:00:00',
+            processedAt: '2026-06-01 10:00:00',
+        );
+
+        $this->createGatewayLog(
+            import: $import,
+            lineNumber: 2,
+            consumerId: 'consumer-b',
+            serviceName: 'billing-service',
+            startedAt: '2026-04-10 10:00:00',
+            processedAt: '2026-05-10 10:00:00',
+        );
+
+        $filters = new ReportFiltersData(
+            dateField: ReportDateField::ProcessedAt,
+            dateFrom: CarbonImmutable::parse('2026-05-01T00:00:00Z'),
+            dateTo: CarbonImmutable::parse('2026-05-31T23:59:59Z'),
+        );
+
+        $export = ReportExport::query()->create([
+            'type' => ReportType::RequestsByConsumer,
+            'status' => ReportExportStatus::Queued,
+            'filters' => $filters->toDatabaseArray(),
+        ]);
+
+        $job = new ExportGatewayLogReportJob(
+            reportExportId: $export->id,
+            outputDirectory: $this->temporaryDirectory,
+        );
+
+        $job->handle($this->makeService());
+
+        $export->refresh();
+
+        $this->assertSame(ReportExportStatus::Finished, $export->status);
+        $this->assertFileExists($export->output_path);
+
+        $this->assertSame([
+            ['consumer_id', 'total'],
+            ['consumer-b', '1'],
+        ], $this->readCsv($export->output_path));
+    }
+
     private function makeService(): GenerateGatewayLogReportService
     {
         return new GenerateGatewayLogReportService(
@@ -238,8 +292,18 @@ final class ExportGatewayLogReportJobTest extends TestCase
         int $latencyRequest = 100,
         int $latencyProxy = 80,
         int $latencyGateway = 20,
+        ?string $startedAt = null,
+        ?string $processedAt = null,
     ): ApiGatewayLog {
-        $date = CarbonImmutable::parse('2026-05-28 12:00:00', 'UTC');
+        $startedAtDate = CarbonImmutable::parse(
+            $startedAt ?? '2026-05-28 12:00:00',
+            'UTC',
+        );
+
+        $processedAtDate = CarbonImmutable::parse(
+            $processedAt ?? '2026-05-28 12:00:00',
+            'UTC',
+        );
 
         return ApiGatewayLog::query()->create([
             'log_import_id' => $import->id,
@@ -255,15 +319,15 @@ final class ExportGatewayLogReportJobTest extends TestCase
             'latency_request' => $latencyRequest,
             'latency_proxy' => $latencyProxy,
             'latency_gateway' => $latencyGateway,
-            'started_at' => $date,
-            'created_at' => $date,
-            'processed_at' => $date,
+            'started_at' => $startedAtDate,
+            'created_at' => $startedAtDate,
+            'processed_at' => $processedAtDate,
             'raw_payload' => [
                 'service' => [
                     'name' => $serviceName,
                 ],
             ],
-            'updated_at' => $date,
+            'updated_at' => $processedAtDate,
         ]);
     }
 

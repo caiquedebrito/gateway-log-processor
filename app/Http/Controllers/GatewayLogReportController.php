@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Application\GatewayLog\Services\QueueGatewayLogReportExportService;
+use App\Domain\GatewayLog\DTO\ReportFiltersData;
 use App\Domain\GatewayLog\Enums\ReportExportStatus;
 use App\Domain\GatewayLog\Enums\ReportType;
 use App\Http\Requests\StoreGatewayLogReportRequest;
@@ -22,8 +23,15 @@ final class GatewayLogReportController extends Controller
     ): JsonResponse {
         $validated = $request->validated();
 
+        $filters = ReportFiltersData::fromArray([
+            'date_field' => $validated['date_field'] ?? null,
+            'date_from' => $validated['date_from'] ?? null,
+            'date_to' => $validated['date_to'] ?? null,
+        ]);
+
         $export = $service->queue(
             type: ReportType::from($validated['type']),
+            filters: $filters,
         );
 
         return (new ReportExportResource($export))

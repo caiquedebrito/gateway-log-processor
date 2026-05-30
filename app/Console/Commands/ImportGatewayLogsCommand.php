@@ -4,22 +4,24 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Application\GatewayLog\Services\ImportFileResolver;
+use App\Domain\GatewayLog\DTO\ResolvedImportFileData;
 use App\Domain\GatewayLog\Enums\LogImportStatus;
+use App\Domain\GatewayLog\Exceptions\ImportFileResolutionException;
 use App\Jobs\ProcessGatewayLogImportJob;
 use App\Models\LogImport;
 use Illuminate\Console\Command;
 use Illuminate\Database\QueryException;
-use RuntimeException;
 
 final class ImportGatewayLogsCommand extends Command
 {
     protected $signature = 'gateway-log:import
-        {file : Path to the NDJSON log file}
+        {file : Path to the NDJSON .txt log file or .zip containing a .txt file}
         {--chunk=1000 : Number of lines processed per queued job}';
 
     protected $description = 'Queue an incremental API Gateway log import.';
 
-    public function handle(): int
+    public function handle(ImportFileResolver $fileResolver): int
     {
         $chunkSize = (int) $this->option('chunk');
 
@@ -29,28 +31,19 @@ final class ImportGatewayLogsCommand extends Command
             return self::FAILURE;
         }
 
-        $filePath = $this->resolveFilePath((string) $this->argument('file'));
-
-        if (! is_file($filePath)) {
-            $this->error("Log file [{$filePath}] does not exist.");
-
-            return self::FAILURE;
-        }
-
-        if (! is_readable($filePath)) {
-            $this->error("Log file [{$filePath}] is not readable.");
+        try {
+            $resolvedFile = $fileResolver->resolve((string) $this->argument('file'));
+        } catch (ImportFileResolutionException $exception) {
+            $this->error('Could not resolve import file.');
+            $this->line("Reason: {$exception->getMessage()}");
 
             return self::FAILURE;
         }
 
-        $fileHash = hash_file('sha256', $filePath);
-
-        if ($fileHash === false) {
-            throw new RuntimeException("Could not calculate hash for file [{$filePath}].");
-        }
+        $this->writeResolvedFileInfo($resolvedFile);
 
         $existingImport = LogImport::query()
-            ->where('file_hash', $fileHash)
+            ->where('file_hash', $resolvedFile->fileHash)
             ->first();
 
         if ($existingImport instanceof LogImport) {
@@ -59,10 +52,13 @@ final class ImportGatewayLogsCommand extends Command
             return self::SUCCESS;
         }
 
-        $import = $this->createImportSafely(
-            filePath: $filePath,
-            fileHash: $fileHash,
-        );
+        [$import, $wasCreated] = $this->createImportSafely($resolvedFile);
+
+        if (! $wasCreated) {
+            $this->writeExistingImportMessage($import);
+
+            return self::SUCCESS;
+        }
 
         ProcessGatewayLogImportJob::dispatch(
             (int) $import->id,
@@ -70,34 +66,51 @@ final class ImportGatewayLogsCommand extends Command
         );
 
         $this->info("Gateway log import [{$import->id}] queued successfully.");
-        $this->line("File: {$filePath}");
+        $this->line('Queue: default');
         $this->line("Chunk size: {$chunkSize}");
 
         return self::SUCCESS;
     }
 
-    private function createImportSafely(string $filePath, string $fileHash): LogImport
+    /**
+     * @return array{0: LogImport, 1: bool}
+     */
+    private function createImportSafely(ResolvedImportFileData $resolvedFile): array
     {
         try {
-            return LogImport::query()->create([
-                'file_path' => $filePath,
-                'file_hash' => $fileHash,
+            $import = LogImport::query()->create([
+                'file_path' => $resolvedFile->resolvedPath,
+                'file_hash' => $resolvedFile->fileHash,
                 'status' => LogImportStatus::Queued,
                 'current_offset' => 0,
                 'last_line_number' => 0,
                 'total_lines_processed' => 0,
                 'total_lines_failed' => 0,
             ]);
+
+            return [$import, true];
         } catch (QueryException $exception) {
             $existingImport = LogImport::query()
-                ->where('file_hash', $fileHash)
+                ->where('file_hash', $resolvedFile->fileHash)
                 ->first();
 
             if ($existingImport instanceof LogImport) {
-                return $existingImport;
+                return [$existingImport, false];
             }
 
             throw $exception;
+        }
+    }
+
+    private function writeResolvedFileInfo(ResolvedImportFileData $resolvedFile): void
+    {
+        $this->line("Input file: {$resolvedFile->inputPath}");
+        $this->line("Resolved log file: {$resolvedFile->resolvedPath}");
+        $this->line("File type: {$resolvedFile->fileType->value}");
+        $this->line("File hash: {$resolvedFile->fileHash}");
+
+        if ($resolvedFile->wasExtracted) {
+            $this->line("Extracted from: {$resolvedFile->extractedFrom}");
         }
     }
 
@@ -128,20 +141,5 @@ final class ImportGatewayLogsCommand extends Command
         $this->line('No new job was dispatched.');
         $this->line("Status: {$status->value}");
         $this->line("File: {$import->file_path}");
-    }
-
-    private function resolveFilePath(string $filePath): string
-    {
-        if (is_file($filePath)) {
-            return realpath($filePath) ?: $filePath;
-        }
-
-        $basePathFile = base_path($filePath);
-
-        if (is_file($basePathFile)) {
-            return realpath($basePathFile) ?: $basePathFile;
-        }
-
-        return $filePath;
     }
 }

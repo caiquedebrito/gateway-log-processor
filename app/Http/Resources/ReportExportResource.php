@@ -28,6 +28,7 @@ final class ReportExportResource extends JsonResource
             'status' => $this->status instanceof ReportExportStatus
                 ? $this->status->value
                 : $this->status,
+            'filters' => $this->filters,
             'output_path' => $this->output_path,
             'started_at' => $this->started_at?->toISOString(),
             'finished_at' => $this->finished_at?->toISOString(),
